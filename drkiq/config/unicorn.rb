@@ -1,0 +1,53 @@
+# Heavily inspired by GitLab:
+# https://github.com/gitlabhq/gitlabhq/blob/master/config/unicorn.rb.example
+
+# Go with at least 1 per CPU core, a higher amount will usually help for fast
+# responses such as reading from a cache.
+worker_processes ENV['WORKER_PROCESSES'].to_i
+
+# Listen on a tcp port or unix socket.
+listen ENV['LISTEN_ON']
+
+# Use a shorter timeout instead of the 60s default. If we are handling large
+# uploads you may want to increase this.
+timeout 30
+
+# Combine Ruby 2.0.0dev or REE with "preload_app true" for memory savings:
+# http://rubyenterpriseedition.com/faq.html#adapt_apps_for_cow
+preload_app true
+GC.respond_to?(:copy_on_write_friendly=) && GC.copy_on_write_friendly = true
+
+# Enable this flag to have unicorn test client connections by writing the
+# beginning of the HTTP headers before calling the application. This
+# prevents calling the application for connections that have disconnected
+# while queued. This is only guaranteed to detect clients on the same
+# host unicorn runs on, and unlikely to detect disconnects even on a
+# fast LAN.
+check_client_connection false
+
+before_fork do |server, worker|
+  # Don't bother having the master process hang onto older connections.
+  
+  defined?(ActiveRecord::Base) && ActiveRecord::Base.connection.disconnect!
+  
+  # Throttle the master from forking too quickly by sleeping. Due
+  # to the implementation of standard Unix signal handlers, this
+  # helps (but does not completely) prevent identical, repeated signals
+  # from being lost when the receiving process is busy.
+  # sleep 1
+end
+
+after_fork do |server, worker|
+  # Per-process listener ports for debugging, admin, migrations, etc..
+  # addr = "127.0.0.1:#{9293 + worker.nr}"
+  # server.listen(addr, tries: -1, delay: 5, tcp_nopush: true)
+  
+  defined?(ActiveRecord::Base) && ActiveRecord::Base.establish_connection
+  
+  # If preload_app is true, then you may also want to check and
+  # restart any other shared sockets/descriptors such as Memcached,
+  # and Redis. TokyoCabinet file handles are safe to reuse
+  # between any number of forked children (assuming your kernel
+  # correctly implements pread()/pwrite() system calls).
+end
+
